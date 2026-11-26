@@ -1,0 +1,23 @@
+# Ignore Python, uv, IDE, and local runtime artifacts
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+data/
+
+
+.agents/*
+.scratch/*
+docs/
+
+AGENTS.md
+CODING_STANDARDS.md
+GLOSSARY.md
+
+skills-lock.json
+
+.env.example
