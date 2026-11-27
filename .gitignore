@@ -12,7 +12,7 @@ data/
 
 .agents/*
 .scratch/*
-docs/
+docs/*
 
 AGENTS.md
 CODING_STANDARDS.md
@@ -20,4 +20,4 @@ GLOSSARY.md
 
 skills-lock.json
 
-.env.example
+.gitignore

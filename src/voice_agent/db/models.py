@@ -1,7 +1,17 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -61,6 +71,12 @@ class AgentProfile(Base):
     """A Tenant's voice agent configuration (prompt, LLM, RAG, Hot Cache, TTS, VAD, Tool)."""
 
     __tablename__ = "agent_profiles"
+    __table_args__ = (
+        CheckConstraint(
+            "silence_hangup_ms > silence_reprompt_ms",
+            name="ck_agent_profile_silence_thresholds",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(

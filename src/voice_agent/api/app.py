@@ -8,7 +8,7 @@ from voice_agent.api.routes.health import router as health_router
 from voice_agent.api.routes.tenants import router as tenants_router
 from voice_agent.clients import create_qdrant_client, create_redis_client, create_redis_pool
 from voice_agent.config import Settings
-from voice_agent.db.session import create_db_engine, create_session_factory, init_db
+from voice_agent.db.session import create_db_engine, create_session_factory, run_migrations
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +30,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.qdrant_client = create_qdrant_client(resolved_settings.qdrant_url)
 
         try:
-            await init_db(engine)
+            await run_migrations(engine)
         except Exception as exc:
-            logger.warning("Database initialization skipped on startup: %s", exc)
+            logger.warning("Database migration skipped on startup: %s", exc)
 
         try:
             yield

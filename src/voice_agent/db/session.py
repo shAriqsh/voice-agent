@@ -1,6 +1,9 @@
 from collections.abc import AsyncIterator
+from pathlib import Path
 
+from alembic.config import Config
 from fastapi import Request
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -8,7 +11,9 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from voice_agent.db.models import Base
+from alembic import command
+
+_ALEMBIC_INI_PATH = Path(__file__).resolve().parents[3] / "alembic.ini"
 
 
 def create_db_engine(database_url: str) -> AsyncEngine:
@@ -21,10 +26,17 @@ def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSessi
     return async_sessionmaker(engine, expire_on_commit=False)
 
 
-async def init_db(engine: AsyncEngine) -> None:
-    """Create database tables if they do not exist."""
+def _run_alembic_upgrade(connection: Connection, alembic_cfg: Config) -> None:
+    alembic_cfg.attributes["connection"] = connection
+    alembic_cfg.attributes["configure_logger"] = False
+    command.upgrade(alembic_cfg, "head")
+
+
+async def run_migrations(engine: AsyncEngine) -> None:
+    """Apply pending Alembic migrations up to head."""
+    alembic_cfg = Config(str(_ALEMBIC_INI_PATH))
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_run_alembic_upgrade, alembic_cfg)
 
 
 async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:

@@ -156,10 +156,16 @@ async def unbind_tenant_did(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-async def _get_profile_or_404(session: AsyncSession, tenant_id: uuid.UUID) -> AgentProfile:
-    result = await session.execute(
-        select(AgentProfile).where(AgentProfile.tenant_id == tenant_id)
-    )
+async def _get_profile_or_404(
+    session: AsyncSession,
+    tenant_id: uuid.UUID,
+    *,
+    for_update: bool = False,
+) -> AgentProfile:
+    stmt = select(AgentProfile).where(AgentProfile.tenant_id == tenant_id)
+    if for_update:
+        stmt = stmt.with_for_update()
+    result = await session.execute(stmt)
     profile = result.scalar_one_or_none()
     if profile is None:
         raise HTTPException(
@@ -169,22 +175,8 @@ async def _get_profile_or_404(session: AsyncSession, tenant_id: uuid.UUID) -> Ag
     return profile
 
 
-_NON_NULLABLE_PROFILE_FIELDS = (
-    "system_prompt",
-    "groq_model",
-    "temperature",
-    "top_p",
-    "max_tokens",
-    "rag_top_k",
-    "rag_min_score",
-    "cache_similarity_threshold",
-    "tts_voice",
-    "tts_speed",
-    "vad_silence_ms",
-    "silence_reprompt_ms",
-    "silence_hangup_ms",
-    "cold_transfer_enabled",
-    "record_audio",
+_NON_NULLABLE_PROFILE_FIELDS: tuple[str, ...] = tuple(
+    col.name for col in AgentProfile.__table__.columns if col.nullable is False
 )
 
 
@@ -202,7 +194,7 @@ async def update_agent_profile(
     redis_client: RedisClient,
 ) -> AgentProfile:
     """Update a Tenant's Agent Profile, bump profile_version, and notify via Redis pub/sub."""
-    profile = await _get_profile_or_404(session, tenant_id)
+    profile = await _get_profile_or_404(session, tenant_id, for_update=True)
     updates = payload.model_dump(exclude_unset=True)
     _reject_null_fields(updates, _NON_NULLABLE_PROFILE_FIELDS)
 
