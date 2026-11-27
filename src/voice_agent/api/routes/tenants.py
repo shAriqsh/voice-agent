@@ -1,23 +1,29 @@
+import json
 import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import select
+from redis.asyncio import Redis
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from voice_agent.api.auth import require_admin_key
 from voice_agent.api.schemas import (
+    AgentProfileResponse,
+    AgentProfileUpdate,
     TenantCreate,
     TenantDIDCreate,
     TenantDIDResponse,
     TenantResponse,
     TenantUpdate,
 )
+from voice_agent.clients import PROFILE_UPDATES_CHANNEL, get_redis_client
 from voice_agent.db.models import AgentProfile, Tenant, TenantDID
 from voice_agent.db.session import get_db_session
 
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
+RedisClient = Annotated[Redis, Depends(get_redis_client)]
 
 router = APIRouter(
     prefix="/tenants",
@@ -32,6 +38,15 @@ async def _get_tenant_or_404(session: AsyncSession, tenant_id: uuid.UUID) -> Ten
     if tenant is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
     return tenant
+
+
+def _reject_null_fields(updates: dict[str, object], required_fields: tuple[str, ...]) -> None:
+    for field in required_fields:
+        if field in updates and updates[field] is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"{field} cannot be null",
+            )
 
 
 async def _commit_or_409(session: AsyncSession, detail: str) -> None:
@@ -80,12 +95,7 @@ async def update_tenant(
     """Update Tenant metadata or active state."""
     tenant = await _get_tenant_or_404(session, tenant_id)
     updates = payload.model_dump(exclude_unset=True)
-    for required_field in ("name", "is_active"):
-        if required_field in updates and updates[required_field] is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"{required_field} cannot be null",
-            )
+    _reject_null_fields(updates, ("name", "is_active"))
     for field, value in updates.items():
         setattr(tenant, field, value)
     await session.commit()
@@ -144,3 +154,84 @@ async def unbind_tenant_did(
     await session.delete(did)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+async def _get_profile_or_404(session: AsyncSession, tenant_id: uuid.UUID) -> AgentProfile:
+    result = await session.execute(
+        select(AgentProfile).where(AgentProfile.tenant_id == tenant_id)
+    )
+    profile = result.scalar_one_or_none()
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Agent Profile not found",
+        )
+    return profile
+
+
+_NON_NULLABLE_PROFILE_FIELDS = (
+    "system_prompt",
+    "groq_model",
+    "temperature",
+    "top_p",
+    "max_tokens",
+    "rag_top_k",
+    "rag_min_score",
+    "cache_similarity_threshold",
+    "tts_voice",
+    "tts_speed",
+    "vad_silence_ms",
+    "silence_reprompt_ms",
+    "silence_hangup_ms",
+    "cold_transfer_enabled",
+    "record_audio",
+)
+
+
+@router.get("/{tenant_id}/profile", response_model=AgentProfileResponse)
+async def get_agent_profile(tenant_id: uuid.UUID, session: DbSession) -> AgentProfile:
+    """Retrieve a Tenant's complete Agent Profile."""
+    return await _get_profile_or_404(session, tenant_id)
+
+
+@router.put("/{tenant_id}/profile", response_model=AgentProfileResponse)
+async def update_agent_profile(
+    tenant_id: uuid.UUID,
+    payload: AgentProfileUpdate,
+    session: DbSession,
+    redis_client: RedisClient,
+) -> AgentProfile:
+    """Update a Tenant's Agent Profile, bump profile_version, and notify via Redis pub/sub."""
+    profile = await _get_profile_or_404(session, tenant_id)
+    updates = payload.model_dump(exclude_unset=True)
+    _reject_null_fields(updates, _NON_NULLABLE_PROFILE_FIELDS)
+
+    effective_reprompt = int(updates.get("silence_reprompt_ms", profile.silence_reprompt_ms))
+    effective_hangup = int(updates.get("silence_hangup_ms", profile.silence_hangup_ms))
+    if effective_hangup <= effective_reprompt:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="silence_hangup_ms must be greater than silence_reprompt_ms",
+        )
+
+    stmt = (
+        update(AgentProfile)
+        .where(AgentProfile.tenant_id == tenant_id)
+        .values(**updates, profile_version=AgentProfile.profile_version + 1)
+        .returning(AgentProfile)
+    )
+    updated_profile = (await session.scalars(stmt)).one()
+    await session.commit()
+    await session.refresh(updated_profile)
+
+    await redis_client.publish(
+        PROFILE_UPDATES_CHANNEL,
+        json.dumps(
+            {
+                "event": "profile_updated",
+                "tenant_id": str(tenant_id),
+                "profile_version": updated_profile.profile_version,
+            }
+        ),
+    )
+    return updated_profile

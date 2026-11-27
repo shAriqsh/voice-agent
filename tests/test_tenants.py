@@ -19,7 +19,7 @@ async def test_create_tenant_initializes_kb_version_and_default_profile(
     assert created["kb_version"] == 1
     assert created["is_active"] is True
     assert created["agent_profile"]["profile_version"] == 1
-    assert created["agent_profile"]["llm_model"] == "llama-3.1-8b-instant"
+    assert created["agent_profile"]["groq_model"] == "llama-3.1-8b-instant"
     assert created["dids"] == []
 
     get_resp = await api_client.get(f"/tenants/{created['id']}", headers=auth_headers)

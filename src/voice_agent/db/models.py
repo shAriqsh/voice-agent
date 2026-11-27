@@ -75,7 +75,7 @@ class AgentProfile(Base):
         nullable=False,
         default="You are a helpful, concise voice assistant.",
     )
-    llm_model: Mapped[str] = mapped_column(
+    groq_model: Mapped[str] = mapped_column(
         String(120), nullable=False, default="llama-3.1-8b-instant"
     )
     temperature: Mapped[float] = mapped_column(Float, nullable=False, default=0.3)
@@ -87,11 +87,11 @@ class AgentProfile(Base):
     tts_voice: Mapped[str] = mapped_column(String(64), nullable=False, default="af_heart")
     tts_speed: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
     vad_silence_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=500)
-    silence_reprompt_delay_s: Mapped[int] = mapped_column(Integer, nullable=False, default=8)
-    silence_hangup_delay_s: Mapped[int] = mapped_column(Integer, nullable=False, default=15)
-    transfer_phone_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    transfer_tool_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    record_calls: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    silence_reprompt_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=8000)
+    silence_hangup_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=15000)
+    transfer_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    cold_transfer_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    record_audio: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

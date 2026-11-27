@@ -1,5 +1,15 @@
+from typing import cast
+
+from fastapi import Request
 from qdrant_client import AsyncQdrantClient
 from redis.asyncio import ConnectionPool, Redis
+
+PROFILE_UPDATES_CHANNEL = "voice_agent:profile_updates"
+
+
+def get_redis_client(request: Request) -> Redis:
+    """Return the shared async Redis client from FastAPI application state."""
+    return cast(Redis, request.app.state.redis_client)
 
 
 def create_redis_pool(redis_url: str) -> ConnectionPool:
